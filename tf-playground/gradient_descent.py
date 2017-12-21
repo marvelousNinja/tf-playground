@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 import tensorflow as tf
 import numpy as np
 from sklearn.datasets import fetch_california_housing
@@ -25,8 +26,10 @@ y = tf.placeholder(tf.float32, shape=(None, 1), name='y')
 
 theta = tf.Variable(tf.random_uniform((n + 1, 1), -1.0, 1.0), name='theta')
 y_pred = tf.matmul(X, theta, name='predictions')
-error = y_pred - y
-mse = tf.reduce_mean(tf.square(error), name='mse')
+
+with tf.name_scope('loss'):
+    error = y_pred - y
+    mse = tf.reduce_mean(tf.square(error), name='mse')
 # Manual gradient
 # gradients = 2/m * tf.matmul(tf.transpose(X), error)
 # training_op = tf.assign(theta, theta - learning_rate * gradients)
@@ -36,7 +39,7 @@ mse = tf.reduce_mean(tf.square(error), name='mse')
 # training_op = tf.assign(theta, theta - learning_rate * gradients)
 
 # TF GD Optimizer
-optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
+optimizer = tf.train.GradientDescentOptimizer(learning_rate=learning_rate)
 training_op = optimizer.minimize(mse)
 
 # TF Momentum
@@ -49,6 +52,13 @@ def fetch_batch(X, y, batch_index, batch_size):
     indices = np.random.choice(X.shape[0], size=batch_size)
     return X[indices], y[indices]
 
+
+now = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+root_logdir = 'tf_logs'
+logdir = "{}/run-{}".format(root_logdir, now)
+
+mse_summary = tf.summary.scalar('MSE', mse)
+file_writer = tf.summary.FileWriter(logdir, tf.get_default_graph())
 saver = tf.train.Saver()
 
 with tf.Session() as sess:
@@ -57,11 +67,15 @@ with tf.Session() as sess:
     for epoch in range(n_epochs):
         for batch_index in range(n_batches):
             X_batch, y_batch = fetch_batch(housing_with_bias, housing.target.reshape(-1, 1), batch_index, batch_size)
+            if batch_index % 10 == 0:
+                summary_str = mse_summary.eval(feed_dict={X:X_batch, y:y_batch})
+                step = epoch * n_batches + batch_index
+                file_writer.add_summary(summary_str, step)
+
             sess.run(training_op, feed_dict={X: X_batch, y: y_batch})
 
         if epoch % 100 == 0:
             print('Epoch', epoch, 'MSE=', mse.eval(feed_dict={X: X_batch, y: y_batch}))
-            print(theta.eval())
 
     saver.save(sess, '/tmp/session_final.ckpt')
     best_theta = theta.eval()
